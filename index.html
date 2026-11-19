@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contador síncrono</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Idea: mesa de laboratorio. Barra de control arriba, esquema lógico al estilo Proteus
+   en el centro (rojo = 1, azul = 0) y diagrama de tiempos al pie. */
+:root {
+  --bg: #e8edf4;
+  --panel: #ffffff;
+  --panel-2: #f1f5fa;
+  --ink: #14202f;
+  --muted: #5a6a7e;
+  --line: #d2dbe7;
+  --accent: #c2600a;
+  --cu: #0b8f89;
+  --cd: #c2600a;
+  --cc: #5a6bd8;
+  --sch-bg: #eef0df;
+  --sch-grid: rgba(110, 120, 80, 0.20);
+  --part: #f3edd2;
+  --partline: #6f6849;
+  --wl: #2f63cf;
+  --wh: #dc3428;
+  --led: #ff3b30;
+  --led-off: rgba(255, 59, 48, 0.12);
+  --glass: #12171f;
+  --font-display: "Chakra Petch", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a101a; --panel: #121a28; --panel-2: #182236; --ink: #e6edf7; --muted: #8a9ab1; --line: #24314a;
+    --accent: #f0a24a; --cu: #35d0c4; --cd: #f0a24a; --cc: #94a3ff;
+    --sch-bg: #0e1522; --sch-grid: rgba(120, 150, 200, 0.12);
+    --part: #1d2840; --partline: #5d729a; --wl: #4f86ff; --wh: #ff5a4a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a101a; --panel: #121a28; --panel-2: #182236; --ink: #e6edf7; --muted: #8a9ab1; --line: #24314a;
+  --accent: #f0a24a; --cu: #35d0c4; --cd: #f0a24a; --cc: #94a3ff;
+  --sch-bg: #0e1522; --sch-grid: rgba(120, 150, 200, 0.12);
+  --part: #1d2840; --partline: #5d729a; --wl: #4f86ff; --wh: #ff5a4a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; min-height: 100%; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 22px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4.4vw, 42px); letter-spacing: 0.01em; margin: 0; line-height: 1.05; }
+.sub { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; font-weight: 500; }
+.pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.pill.run .dot { background: var(--cu); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cu) 25%, transparent); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 24px -18px rgba(10, 20, 40, 0.5); }
+.panel h2 { font-family: var(--font-display); font-weight: 600; margin: 0; letter-spacing: 0.02em; font-size: 18px; }
+
+/* Barra de control */
+.bar { padding: 14px 16px; display: grid; grid-template-columns: auto auto minmax(240px, 1fr) auto; gap: 14px 24px; align-items: center; }
+.count { display: flex; flex-direction: column; gap: 0; }
+.count small { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.count b { font-family: var(--font-mono); font-size: 40px; font-weight: 600; line-height: 1.05; letter-spacing: 0.04em; }
+.count span { font-size: 12px; color: var(--muted); }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+button { font: inherit; font-weight: 500; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); padding: 9px 14px; min-height: 40px; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 112px; }
+:root[data-theme="dark"] button.primary { color: #1a1204; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color: #1a1204; } }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.speed { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.speed-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.speed-head label { font-weight: 600; font-size: 14px; }
+.speed-val { font-family: var(--font-mono); font-size: 13px; color: var(--accent); }
+input[type="range"] { width: 100%; accent-color: var(--accent); height: 26px; margin: 0; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.presets button { padding: 3px 10px; min-height: 28px; font-size: 12.5px; }
+.fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field label { font-size: 12px; color: var(--muted); }
+.field .in { display: flex; gap: 6px; }
+input[type="number"] { width: 92px; font: inherit; font-family: var(--font-mono); padding: 7px 9px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); }
+.hint { margin: 0; font-size: 12px; color: var(--muted); grid-column: 1 / -1; }
+kbd { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel-2); }
+
+/* Esquema */
+.sch-panel { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; }
+.sch-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 22px; height: 0; border-top: 3px solid; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+.schwrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--line); background: var(--sch-bg); }
+svg#sch { display: block; width: 100%; min-width: 980px; height: auto; font-family: var(--font-mono); }
+.w { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.w.lo { stroke: var(--wl); } .w.hi { stroke: var(--wh); }
+.jd.lo { fill: var(--wl); } .jd.hi { fill: var(--wh); }
+.part { fill: var(--part); stroke: var(--partline); stroke-width: 1.5; }
+.pline { fill: none; stroke: var(--partline); stroke-width: 1.5; }
+.nm { font-size: 11px; font-weight: 500; fill: var(--ink); }
+.pl { font-size: 10px; fill: var(--muted); }
+.tg { font-size: 10px; font-weight: 500; fill: var(--muted); }
+.blk { font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: 0.12em; }
+.qv { font-size: 22px; font-weight: 600; }
+.qv.hi { fill: var(--wh); } .qv.lo { fill: var(--muted); opacity: 0.6; }
+.flag { fill: #d12d2d; stroke: none; } .fl { font-size: 10px; font-weight: 600; fill: #fff; text-anchor: middle; }
+.glass { fill: var(--glass); stroke: #000; stroke-opacity: 0.4; }
+.seg.hi { fill: var(--led); filter: drop-shadow(0 0 4px var(--led)); } .seg.lo { fill: var(--led-off); }
+.btn-hit { fill: transparent; cursor: pointer; }
+.btn-lbl { font-size: 10px; fill: var(--accent); font-weight: 600; }
+.gnd { stroke: var(--partline); stroke-width: 1.8; fill: none; }
+.clkled.hi { fill: var(--wh); } .clkled.lo { fill: var(--partline); opacity: 0.5; }
+
+/* Tiempos */
+.timing { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.timing header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.tleg { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.tleg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.cwrap { width: 100%; overflow: hidden; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+canvas { display: block; width: 100%; }
+
+footer { color: var(--muted); font-size: 13px; max-width: 100ch; }
+footer p { margin: 0 0 6px; }
+
+@media (max-width: 1000px) { .bar { grid-template-columns: 1fr 1fr; } .speed { grid-column: 1 / -1; } }
+@media (max-width: 520px) { .bar { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Contador síncrono</h1>
+      <p class="sub">Contador de tres dígitos con flip-flops JK 74LS76, compuertas 74LS08, 74LS32 y 74LS20, y decodificadores 74LS48. Los cables cambian de color con el nivel lógico en cada pulso de reloj.</p>
+    </div>
+    <span class="pill" id="pill-run"><i class="dot"></i><span id="pill-run-t">Pausado</span></span>
+  </header>
+
+  <section class="panel bar">
+    <div class="count">
+      <small>Cuenta</small>
+      <b id="count">000</b>
+      <span><span id="pulses">0</span> pulsos</span>
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="btn-play" type="button">Pausar</button>
+      <button id="btn-step" type="button">Un pulso</button>
+      <button id="btn-reset" type="button">Reiniciar</button>
+    </div>
+    <div class="speed">
+      <div class="speed-head">
+        <label for="speed">Velocidad del reloj</label>
+        <span class="speed-val" id="speed-val">4.0 Hz · 250 ms</span>
+      </div>
+      <input type="range" id="speed" min="0" max="100" step="1" value="55">
+      <div class="presets" id="presets">
+        <button type="button" data-hz="0.5">0.5 Hz</button>
+        <button type="button" data-hz="1">1 Hz</button>
+        <button type="button" data-hz="4">4 Hz</button>
+        <button type="button" data-hz="15">15 Hz</button>
+        <button type="button" data-hz="40">40 Hz</button>
+      </div>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <label for="load">Cargar valor (0–399)</label>
+        <div class="in"><input type="number" id="load" min="0" max="399" value="95"><button type="button" id="btn-load">Cargar</button></div>
+      </div>
+      <div class="field">
+        <label for="limit">Borrar al llegar a (0 = no)</label>
+        <div class="in"><input type="number" id="limit" min="0" max="399" value="0"></div>
+      </div>
+    </div>
+    <p class="hint" id="limit-hint">Atajos: <kbd>Espacio</kbd> pausa o reanuda, <kbd>→</kbd> un pulso, <kbd>R</kbd> reinicia. Puedes mantener pulsado el botón del esquema para borrar.</p>
+  </section>
+
+  <section class="panel sch-panel">
+    <div class="sch-head">
+      <h2>Esquema lógico</h2>
+      <div class="legend">
+        <span><i style="border-color:var(--wh)"></i>Nivel alto (1)</span>
+        <span><i style="border-color:var(--wl)"></i>Nivel bajo (0)</span>
+        <span>Los 74LS76 cambian con el flanco de bajada del reloj</span>
+      </div>
+    </div>
+    <div class="schwrap"><svg id="sch" viewBox="0 0 1260 1210" role="img" aria-label="Esquema lógico del contador síncrono"></svg></div>
+  </section>
+
+  <section class="panel timing">
+    <header>
+      <h2>Diagrama de tiempos</h2>
+      <div class="tleg">
+        <span><i style="background:var(--cu)"></i>Unidades</span>
+        <span><i style="background:var(--cd)"></i>Decenas</span>
+        <span><i style="background:var(--cc)"></i>Centenas</span>
+      </div>
+    </header>
+    <div class="cwrap"><canvas id="tim" aria-label="Diagrama de tiempos del reloj y las salidas Q"></canvas></div>
+  </section>
+
+  <footer>
+    <p>Cada década usa cuatro flip-flops JK con J y K calculadas por las compuertas: J2 = QA·Q̄D, K2 = QA, J3 = K3 = QA·QB, J4 = QA·QB·QC, K4 = QA. Las decenas y centenas reciben el reloj a través de una compuerta OR (reloj OR acarreo negado), así que todos los flip-flops cambian en el mismo flanco.</p>
+    <p>Reconstruí las conexiones a partir de tu esquema; el acarreo (U13:A y U13:B) y la detección de borrado son equivalentes funcionalmente, no una copia cable por cable.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Datos ---------- */
+  var SEG = { 0: "abcdef", 1: "bc", 2: "abdeg", 3: "abcdg", 4: "bcfg", 5: "acdfg", 6: "acdefg", 7: "abc", 8: "abcdefg", 9: "abcdfg" };
+  var RECT = { a: [24, 8, 52, 11], b: [78, 22, 11, 50], c: [78, 88, 11, 50], d: [24, 141, 52, 11], e: [11, 88, 11, 50], f: [11, 22, 11, 50], g: [24, 74.5, 52, 11] };
+  var DX = 140;
+  var OY = { U: 60, D: 470, H: 850 };
+  var FX = [100, 270, 440, 610];
+  var NAMES = { U: ["U1:A", "U1:B", "U2:A", "U2:B"], D: ["U7:A", "U7:B", "U8:A", "U8:B"], H: ["U12:A", "U12:B"] };
+  var TITLE = { U: "UNIDADES", D: "DECENAS", H: "CENTENAS" };
+  var DEC = { U: "U3", D: "U6", H: "U11" };
+  var LBL = { U: "Uni", D: "Dec", H: "Cen" };
+  var QL = ["QA", "QB", "QC", "QD"];
+  var LET = "ABCD";
+  var HISTORY_MAX = 90;
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- Estado ---------- */
+  var st = { U: [0, 0, 0, 0], D: [0, 0, 0, 0], H: [0, 0] };
+  var hz = 4, running = !reduceMotion, acc = 0, pulses = 0, phase = 0, flashUntil = 0;
+  var pressed = false, clearAt = 0, hist = [];
+  var dets = ["zero", null, null, null], detLabels = ["0", "1", "1", "1"];
+
+  function $(id) { return document.getElementById(id); }
+  function val(b) { var s = 0; for (var i = 0; i < b.length; i++) s += b[i] << i; return s; }
+  function total() { return 100 * val(st.H) + 10 * val(st.D) + val(st.U); }
+
+  /* ---------- Constructor de esquema ---------- */
+  var out = [];
+  function pts(a) { return a.map(function (q) { return q[0] + "," + q[1]; }).join(" "); }
+  function wire(n, a) { out.push('<polyline class="w" data-n="' + n + '" points="' + pts(a) + '"/>'); }
+  function dot(n, x, y) { out.push('<circle class="jd" data-n="' + n + '" cx="' + x + '" cy="' + y + '" r="3"/>'); }
+  function text(x, y, t, c, a) { out.push('<text class="' + c + '" x="' + x + '" y="' + y + '"' + (a ? ' text-anchor="' + a + '"' : "") + ">" + t + "</text>"); }
+  function tag(x, y, side, n, label, id) {
+    var s = side === "l" ? -1 : 1;
+    wire(n, [[x, y], [x + s * 16, y]]);
+    out.push('<text class="tg"' + (id ? ' id="' + id + '"' : "") + ' x="' + (x + s * 20) + '" y="' + (y + 3.5) + '" text-anchor="' + (s < 0 ? "end" : "start") + '">' + label + "</text>");
+  }
+  function flag(x, y) {
+    out.push('<path class="flag" d="M' + x + " " + y + "L" + (x - 9) + " " + (y - 9) + "V" + (y - 22) + "H" + (x + 9) + "V" + (y - 9) + 'Z"/>');
+    text(x, y - 12, "1", "fl", "middle");
+  }
+  function andBody(x, y, h) {
+    var r = h / 2, bx = x + 54 - r;
+    return '<path class="part" d="M' + x + " " + y + "H" + bx + "A" + r + " " + r + " 0 0 1 " + bx + " " + (y + h) + "H" + x + 'Z"/>';
+  }
+  function gAnd(x, y, name) { out.push(andBody(x, y, 38)); text(x + 27, y - 5, name, "nm", "middle"); }
+  function gOr(x, y, name) {
+    out.push('<path class="part" d="M' + x + " " + y + "Q" + (x + 22) + " " + (y + 19) + " " + x + " " + (y + 38) + "Q" + (x + 38) + " " + (y + 38) + " " + (x + 54) + " " + (y + 19) + "Q" + (x + 38) + " " + y + " " + x + " " + y + 'Z"/>');
+    out.push('<path class="pline" d="M' + x + " " + (y + 9) + "H" + (x + 8) + "M" + x + " " + (y + 29) + "H" + (x + 8) + '"/>');
+    text(x + 27, y - 5, name, "nm", "middle");
+  }
+  function gNand4(x, y, name) {
+    out.push(andBody(x, y, 64));
+    out.push('<circle class="part" cx="' + (x + 58) + '" cy="' + (y + 32) + '" r="4"/>');
+    text(x + 27, y - 5, name, "nm", "middle");
+  }
+  function ff(x, y, name, net) {
+    out.push('<rect class="part" x="' + x + '" y="' + y + '" width="64" height="84" rx="3"/>');
+    text(x + 2, y - 6, name, "nm");
+    text(x + 6, y + 22, "J", "pl"); text(x + 6, y + 70, "K", "pl");
+    out.push('<circle class="part" cx="' + (x - 4) + '" cy="' + (y + 42) + '" r="4"/>');
+    out.push('<path class="pline" d="M' + x + " " + (y + 35) + "L" + (x + 8) + " " + (y + 42) + "L" + x + " " + (y + 49) + '"/>');
+    text(x + 11, y + 46, "CLK", "pl");
+    text(x + 58, y + 22, "Q", "pl", "end");
+    out.push('<text class="pl" x="' + (x + 58) + '" y="' + (y + 70) + '" text-anchor="end"><tspan text-decoration="overline">Q</tspan></text>');
+    out.push('<text class="pl" x="' + (x + 32) + '" y="' + (y + 11) + '" text-anchor="middle"><tspan text-decoration="overline">S</tspan></text>');
+    out.push('<text class="pl" x="' + (x + 32) + '" y="' + (y + 79) + '" text-anchor="middle"><tspan text-decoration="overline">R</tspan></text>');
+    out.push('<text class="qv" data-n="' + net + '" data-t="1" x="' + (x + 45) + '" y="' + (y + 53) + '" text-anchor="middle">0</text>');
+  }
+
+  function decoder(p, oy, only2) {
+    var x = DX + 800, y = function (v) { return oy + v; };
+    out.push('<rect class="part" x="' + x + '" y="' + y(190) + '" width="100" height="150" rx="3"/>');
+    text(x + 50, y(184), DEC[p], "nm", "middle");
+    text(x + 50, y(250), "74LS48", "pl", "middle");
+    LET.split("").forEach(function (l, i) { text(x + 6, y(219 + 20 * i), l, "pl"); });
+    [["LT", 295], ["RBI", 310], ["BI/RBO", 325]].forEach(function (r) {
+      text(x + 6, y(r[1] + 3.5), r[0], "pl");
+      wire("one", [[x, y(r[1])], [x - 14, y(r[1])]]);
+      text(x - 17, y(r[1] + 3.5), "1", "tg", "end");
+    });
+    if (only2) {
+      [255, 275].forEach(function (v) {
+        wire("zero", [[x, y(v)], [x - 14, y(v)]]);
+        text(x - 17, y(v + 3.5), "0", "tg", "end");
+      });
+    }
+    "abcdefg".split("").forEach(function (c, i) {
+      var yy = y(205 + 18 * i);
+      text(x + 94, yy + 3.5, c, "pl", "end");
+      wire(p + ".s" + c, [[x + 100, yy], [x + 112, yy]]);
+      out.push('<rect class="part" x="' + (x + 112) + '" y="' + (yy - 4) + '" width="28" height="8"/>');
+      wire(p + ".s" + c, [[x + 140, yy], [x + 170, yy]]);
+    });
+    out.push('<rect class="glass" x="' + (x + 170) + '" y="' + y(176) + '" width="120" height="176" rx="6"/>');
+    out.push('<g transform="translate(' + (x + 187) + " " + y(193) + ') scale(0.85)">');
+    for (var s in RECT) {
+      var d = RECT[s];
+      out.push('<rect class="seg" data-n="' + p + ".s" + s + '" x="' + d[0] + '" y="' + d[1] + '" width="' + d[2] + '" height="' + d[3] + '" rx="5"/>');
+    }
+    out.push("</g>");
+    text(x + 230, y(366), TITLE[p], "pl", "middle");
+  }
+
+  /* Bloque de reloj compartido por décadas y centenas */
+  function clockInput(p, oy, gated, orName, tagNet, tagLbl, lastStubLocal) {
+    var y = function (v) { return oy + v; }, X = function (v) { return v + DX; };
+    var endX = X(lastStubLocal);
+    if (!gated) {
+      wire("clk", [[20, y(302)], [endX, y(302)]]);
+      dot("clk", 20, y(302));
+    } else {
+      gOr(100, y(270), orName);
+      wire("clk", [[20, y(279)], [100, y(279)]]);
+      dot("clk", 20, y(279));
+      tag(100, y(299), "l", tagNet, tagLbl);
+      wire(p + ".clk", [[154, y(289)], [166, y(289)], [166, y(302)], [endX, y(302)]]);
+    }
+  }
+
+  function tiesAndRails(p, oy, n) {
+    var y = function (v) { return oy + v; }, X = function (v) { return v + DX; };
+    var clkNet = p === "U" ? "clk" : p + ".clk";
+    // J y K de la primera etapa a 1
+    wire("one", [[X(100), y(168)], [X(88), y(168)], [X(88), y(216)], [X(100), y(216)]]);
+    wire("one", [[X(88), y(168)], [X(88), y(138)]]);
+    flag(X(88), y(138));
+    dot("one", X(88), y(168));
+    for (var i = 0; i < n; i++) {
+      var fx = FX[i];
+      // S a 1
+      wire("one", [[X(fx + 32), y(150)], [X(fx + 32), y(140)]]);
+      // reloj
+      var cx = i === 0 ? 76 : fx - 20;
+      wire(clkNet, [[X(fx) - 8, y(192)], [X(cx), y(192)], [X(cx), y(302)]]);
+      if (i > 0) dot(clkNet, X(cx), y(302));
+      // clear
+      wire("clr", [[X(fx + 32), y(234)], [X(fx + 32), y(314)]]);
+      if (i < n - 1) dot("clr", X(fx + 32), y(314));
+    }
+    wire("clr", [[40, y(314)], [X(FX[n - 1] + 32), y(314)]]);
+    dot("clr", 40, y(314));
+  }
+
+  function decade(p, oy, gated, tagNet, tagLbl, orName) {
+    var y = function (v) { return oy + v; }, X = function (v) { return v + DX; };
+    text(56, y(14), TITLE[p], "blk");
+    out[out.length - 1] = out[out.length - 1].replace('class="blk"', 'class="blk" fill="' + { U: "var(--cu)", D: "var(--cd)", H: "var(--cc)" }[p] + '"');
+    FX.forEach(function (v, i) { ff(X(v), y(150), NAMES[p][i], p + "." + LET[i]); });
+    gAnd(X(200), y(14), p === "U" ? "U4:C" : "U9:C");
+    gAnd(X(366), y(70), p === "U" ? "U4:A" : "U9:A");
+    gAnd(X(540), y(70), p === "U" ? "U4:B" : "U9:B");
+    var A = p + ".A", B = p + ".B", C = p + ".C", D = p + ".D";
+    // QA
+    wire(A, [[X(164), y(168)], [X(176), y(168)]]);
+    wire(A, [[X(200), y(24)], [X(176), y(24)], [X(176), y(250)], [X(258), y(250)], [X(258), y(216)], [X(270), y(216)]]);
+    wire(A, [[X(258), y(250)], [X(598), y(250)], [X(598), y(216)], [X(610), y(216)]]);
+    wire(A, [[X(598), y(250)], [X(740), y(250)], [X(740), y(215)], [DX + 800, y(215)]]);
+    wire(A, [[X(176), y(80)], [X(366), y(80)]]);
+    dot(A, X(176), y(168)); dot(A, X(176), y(80)); dot(A, X(258), y(250)); dot(A, X(598), y(250));
+    // QB
+    wire(B, [[X(334), y(168)], [X(346), y(168)]]);
+    wire(B, [[X(366), y(98)], [X(346), y(98)], [X(346), y(270)], [X(750), y(270)], [X(750), y(235)], [DX + 800, y(235)]]);
+    dot(B, X(346), y(168));
+    // QC
+    wire(C, [[X(504), y(168)], [X(516), y(168)]]);
+    wire(C, [[X(540), y(98)], [X(516), y(98)], [X(516), y(280)], [X(760), y(280)], [X(760), y(255)], [DX + 800, y(255)]]);
+    dot(C, X(516), y(168));
+    // QD y /QD
+    wire(D, [[X(674), y(168)], [X(686), y(168)], [X(686), y(290)], [X(770), y(290)], [X(770), y(275)], [DX + 800, y(275)]]);
+    wire(p + ".nD", [[X(674), y(216)], [X(698), y(216)], [X(698), y(260)], [X(188), y(260)], [X(188), y(42)], [X(200), y(42)]]);
+    // Salidas de compuertas
+    wire(p + ".JB", [[X(254), y(33)], [X(260), y(33)], [X(260), y(168)], [X(270), y(168)]]);
+    wire(p + ".g1", [[X(420), y(89)], [X(426), y(89)], [X(426), y(216)], [X(440), y(216)]]);
+    wire(p + ".g1", [[X(426), y(168)], [X(440), y(168)]]);
+    wire(p + ".g1", [[X(426), y(89)], [X(480), y(89)], [X(480), y(80)], [X(540), y(80)]]);
+    dot(p + ".g1", X(426), y(89)); dot(p + ".g1", X(426), y(168));
+    wire(p + ".JD", [[X(594), y(89)], [X(602), y(89)], [X(602), y(168)], [X(610), y(168)]]);
+    tiesAndRails(p, oy, 4);
+    clockInput(p, oy, gated, orName, tagNet, tagLbl, 590);
+    decoder(p, oy, false);
+  }
+
+  function hundreds(oy) {
+    var y = function (v) { return oy + v; }, X = function (v) { return v + DX; };
+    text(56, y(14), TITLE.H, "blk");
+    out[out.length - 1] = out[out.length - 1].replace('class="blk"', 'class="blk" fill="var(--cc)"');
+    ff(X(100), y(150), NAMES.H[0], "H.A");
+    ff(X(270), y(150), NAMES.H[1], "H.B");
+    wire("H.A", [[X(164), y(168)], [X(176), y(168)]]);
+    wire("H.A", [[X(176), y(168)], [X(270), y(168)]]);
+    wire("H.A", [[X(258), y(168)], [X(258), y(216)], [X(270), y(216)]]);
+    wire("H.A", [[X(176), y(168)], [X(176), y(250)], [X(740), y(250)], [X(740), y(215)], [DX + 800, y(215)]]);
+    dot("H.A", X(176), y(168)); dot("H.A", X(258), y(168));
+    wire("H.B", [[X(334), y(168)], [X(346), y(168)], [X(346), y(270)], [X(750), y(270)], [X(750), y(235)], [DX + 800, y(235)]]);
+    tiesAndRails(("H"), oy, 2);
+    clockInput("H", oy, true, "U10:A", "nCh", "nCh", 250);
+    decoder("H", oy, true);
+
+    // U13:A, acarreo hacia centenas (NAND de 4 entradas)
+    var gx = 680, gy = y(20);
+    gNand4(gx, gy, "U13:A");
+    var ins = [["U.A", "Uni QA"], ["U.D", "Uni QD"], ["D.A", "Dec QA"], ["D.D", "Dec QD"]];
+    ins.forEach(function (r, i) { tag(gx, gy + 8 + 16 * i, "l", r[0], r[1]); });
+    tag(gx + 62, gy + 32, "r", "nCh", "nCh");
+
+    // Detección de borrado (NAND de 4 entradas, entradas dinámicas)
+    var dx2 = 680, dy2 = y(110);
+    gNand4(dx2, dy2, "U15:A");
+    for (var i = 0; i < 4; i++) tag(dx2, dy2 + 8 + 16 * i, "l", "dt" + i, detLabels[i], "dl" + i);
+    wire("ndet", [[dx2 + 62, dy2 + 32], [770, dy2 + 32], [770, y(130)], [800, y(130)]]);
+    gAnd(800, y(120), "U16:A");
+    wire("clr", [[854, y(139)], [866, y(139)], [866, y(345)], [40, y(345)]]);
+    wire("clr", [[40, y(314)], [40, y(345)]]);
+    wire("btn", [[570, y(305)], [570, y(190)], [790, y(190)], [790, y(149)], [800, y(149)]]);
+    // R22 y pulsador
+    flag(500, y(305));
+    wire("one", [[500, y(305)], [512, y(305)]]);
+    out.push('<rect class="part" x="512" y="' + y(299) + '" width="30" height="12"/>');
+    text(527, y(322), "R22 10k", "pl", "middle");
+    wire("btn", [[542, y(305)], [620, y(305)]]);
+    dot("btn", 570, y(305));
+    out.push('<circle class="part" cx="620" cy="' + y(305) + '" r="3"/><circle class="part" cx="650" cy="' + y(305) + '" r="3"/>');
+    out.push('<line id="lever" class="pline" style="stroke-width:2.5" x1="620" y1="' + y(305) + '" x2="648" y2="' + y(291) + '"/>');
+    wire("zero", [[650, y(305)], [670, y(305)], [670, y(316)]]);
+    out.push('<path class="gnd" d="M660 ' + y(316) + "h20M663 " + y(320) + "h14M667 " + y(324) + 'h6"/>');
+    text(635, y(332), "RESET (mantén)", "btn-lbl", "middle");
+    out.push('<rect id="btn-hit" class="btn-hit" x="606" y="' + y(282) + '" width="58" height="48"><title>Mantén pulsado para borrar el contador</title></rect>');
+    // etiqueta de detección
+  }
+
+  function build() {
+    out = [];
+    out.push('<defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="var(--sch-grid)" stroke-width="1"/></pattern></defs>');
+    out.push('<rect width="1260" height="1210" fill="url(#grid)"/>');
+    // Generador de reloj
+    out.push('<rect class="part" x="4" y="4" width="96" height="30" rx="4"/>');
+    out.push('<polyline class="pline" points="12,26 12,12 24,12 24,26 36,26 36,12 48,12 48,26 60,26" />');
+    out.push('<circle id="clkled" class="clkled lo" cx="86" cy="19" r="6"/>');
+    text(108, 16, "U1:A (CLK)", "nm");
+    out.push('<text class="pl" id="gen-hz" x="108" y="30">4.0 Hz</text>');
+    wire("clk", [[20, 34], [20, OY.H + 279]]);
+    // Décadas
+    decade("U", OY.U, false, "", "", "");
+    decade("D", OY.D, true, "nCu", "nCu", "U5:A");
+    hundreds(OY.H);
+    // Carry NAND de unidades (U13:B)
+    var by = OY.U + 338;
+    gNand4(100, by, "U13:B");
+    tag(100, by + 8, "l", "U.A", "Uni QA");
+    tag(100, by + 24, "l", "U.D", "Uni QD");
+    tag(100, by + 40, "l", "one", "1");
+    tag(100, by + 56, "l", "one", "1");
+    tag(162, by + 32, "r", "nCu", "nCu");
+    // Bus de borrado: ramales entre bloques
+    wire("clr", [[40, OY.U + 314], [40, OY.D + 314]]);
+    dot("clr", 40, OY.D + 314);
+    wire("clr", [[40, OY.D + 314], [40, OY.H + 314]]);
+    dot("clr", 40, OY.H + 314);
+    $("sch").innerHTML = out.join("");
+  }
+
+  /* ---------- Lógica combinacional ---------- */
+  function nets(clk) {
+    var n = { clk: clk, one: 1, zero: 0 };
+    ["U", "D", "H"].forEach(function (p) {
+      st[p].forEach(function (v, i) { n[p + "." + LET[i]] = v; });
+      var on = SEG[val(st[p])] || "";
+      "abcdefg".split("").forEach(function (c) { n[p + ".s" + c] = on.indexOf(c) >= 0 ? 1 : 0; });
+    });
+    ["U", "D"].forEach(function (p) {
+      var A = n[p + ".A"], B = n[p + ".B"], C = n[p + ".C"], D = n[p + ".D"];
+      n[p + ".nD"] = 1 - D; n[p + ".JB"] = A & (1 - D); n[p + ".g1"] = A & B; n[p + ".JD"] = A & B & C;
+    });
+    n.nCu = 1 - (n["U.A"] & n["U.D"]);
+    n.nCh = 1 - (n["U.A"] & n["U.D"] & n["D.A"] & n["D.D"]);
+    n["D.clk"] = clk | n.nCu;
+    n["H.clk"] = clk | n.nCh;
+    for (var i = 0; i < 4; i++) n["dt" + i] = dets[i] === null ? 1 : (dets[i] === "zero" ? 0 : n[dets[i]]);
+    n.ndet = 1 - (n.dt0 & n.dt1 & n.dt2 & n.dt3);
+    n.btn = pressed ? 0 : 1;
+    n.clr = n.ndet & n.btn;
+    return n;
+  }
+
+  function applyJK(q, J, K) {
+    for (var i = 0; i < q.length; i++) q[i] = (J[i] & (1 - q[i])) | ((1 - K[i]) & q[i]);
+  }
+
+  function snap() { return { n: total(), b: st.U.concat(st.D, st.H) }; }
+  function pushHistory() { hist.push(snap()); if (hist.length > HISTORY_MAX) hist.shift(); }
+
+  function tick() {
+    var n = nets(1);
+    var clkD = !n.nCu, clkH = !n.nCh;
+    var jU = [1, n["U.JB"], n["U.g1"], n["U.JD"]], kU = [1, n["U.A"], n["U.g1"], n["U.A"]];
+    var jD = [1, n["D.JB"], n["D.g1"], n["D.JD"]], kD = [1, n["D.A"], n["D.g1"], n["D.A"]];
+    var hJ = [1, n["H.A"]];
+    applyJK(st.U, jU, kU);
+    if (clkD) applyJK(st.D, jD, kD);
+    if (clkH) applyJK(st.H, hJ, hJ);
+    pulses++;
+    pushHistory();
+    flashUntil = performance.now() + 150;
+    if (nets(1).ndet === 0) clearAt = performance.now() + Math.min(260, 450 / hz);
+  }
+
+  function clearStates(fixHist) {
+    st = { U: [0, 0, 0, 0], D: [0, 0, 0, 0], H: [0, 0] };
+    if (fixHist && hist.length) hist[hist.length - 1] = snap();
+  }
+
+  /* ---------- Detector de borrado ---------- */
+  function bitsOf(s) {
+    var c = Math.floor(s / 100), d = Math.floor(s / 10) % 10, u = s % 10;
+    return { H: c, D: d, U: u };
+  }
+  function setLimit(N) {
+    var refs = [];
+    if (N >= 1 && N <= 399) {
+      var b = bitsOf(N);
+      [["H", 1], ["H", 0], ["D", 3], ["D", 2], ["D", 1], ["D", 0], ["U", 3], ["U", 2], ["U", 1], ["U", 0]].forEach(function (r) {
+        if ((b[r[0]] >> r[1]) & 1) refs.push(r);
+      });
+      refs = refs.slice(0, 4);
+    }
+    dets = [null, null, null, null]; detLabels = ["1", "1", "1", "1"];
+    var hint;
+    if (!refs.length) {
+      dets[0] = "zero"; detLabels[0] = "0";
+      hint = "Sin borrado automático: la cuenta llega a 399 y vuelve a 000. Atajos: Espacio pausa, → un pulso, R reinicia.";
+    } else {
+      refs.forEach(function (r, i) { dets[i] = r[0] + "." + LET[r[1]]; detLabels[i] = LBL[r[0]] + " " + QL[r[1]]; });
+      var X = N;
+      for (var s = 0; s <= 399; s++) {
+        var bb = bitsOf(s), ok = true;
+        refs.forEach(function (r) { if (!((bb[r[0]] >> r[1]) & 1)) ok = false; });
+        if (ok) { X = s; break; }
+      }
+      hint = X === N ? "U15:A detecta " + N + " y borra todos los flip-flops: la cuenta va de 000 a " + (N - 1) + "."
+        : "Con 4 entradas U15:A detecta " + X + " (no " + N + "): la cuenta va de 000 a " + (X - 1) + ".";
+    }
+    for (var i = 0; i < 4; i++) { var e = $("dl" + i); if (e) e.textContent = detLabels[i]; }
+    $("limit-hint").textContent = hint;
+  }
+
+  /* ---------- Pintado ---------- */
+  var els = {}, prev = {};
+  function cacheEls() {
+    els = {}; prev = {};
+    var all = $("sch").querySelectorAll("[data-n]");
+    for (var i = 0; i < all.length; i++) {
+      var k = all[i].getAttribute("data-n");
+      (els[k] = els[k] || []).push(all[i]);
+    }
+  }
+  function paint(n) {
+    for (var k in els) {
+      var v = n[k];
+      if (v === undefined || prev[k] === v) continue;
+      prev[k] = v;
+      els[k].forEach(function (e) {
+        e.classList.toggle("hi", !!v); e.classList.toggle("lo", !v);
+        if (e.hasAttribute("data-t")) e.textContent = v;
+      });
+    }
+    var lv = $("lever");
+    if (lv) lv.setAttribute("y2", pressed ? OY.H + 305 : OY.H + 291);
+  }
+
+  function renderStatus() {
+    $("pill-run").classList.toggle("run", running);
+    $("pill-run-t").textContent = running ? "En marcha" : "Pausado";
+    $("btn-play").textContent = running ? "Pausar" : "Reanudar";
+    var f = hz >= 10 ? hz.toFixed(0) : hz.toFixed(1);
+    $("speed-val").textContent = f + " Hz · " + Math.round(1000 / hz) + " ms";
+    $("gen-hz").textContent = f + " Hz";
+  }
+
+  /* ---------- Controles ---------- */
+  function sliderToHz(v) { return 0.25 * Math.pow(160, v / 100); }
+  function hzToSlider(h) { return Math.round(100 * Math.log(h / 0.25) / Math.log(160)); }
+  $("speed").addEventListener("input", function (e) { hz = sliderToHz(+e.target.value); renderStatus(); });
+  $("presets").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-hz]"); if (!b) return;
+    hz = +b.getAttribute("data-hz"); $("speed").value = hzToSlider(hz); renderStatus();
+  });
+  function setRunning(v) { running = v; renderStatus(); }
+  function resetAll() { clearStates(false); pulses = 0; acc = 0; clearAt = 0; hist = []; pushHistory(); }
+  function loadValue(v) {
+    v = Math.max(0, Math.min(399, Math.floor(+v) || 0));
+    var b = bitsOf(v);
+    function bits(x, len) { var a = []; for (var i = 0; i < len; i++) a.push((x >> i) & 1); return a; }
+    st = { U: bits(b.U, 4), D: bits(b.D, 4), H: bits(b.H, 2) };
+    acc = 0; clearAt = 0; hist = []; pushHistory();
+  }
+  function step() { setRunning(false); acc = 0; tick(); }
+  $("btn-play").addEventListener("click", function () { setRunning(!running); });
+  $("btn-step").addEventListener("click", step);
+  $("btn-reset").addEventListener("click", resetAll);
+  $("btn-load").addEventListener("click", function () { loadValue($("load").value); });
+  $("limit").addEventListener("input", function (e) { setLimit(Math.floor(+e.target.value) || 0); });
+  document.addEventListener("keydown", function (e) {
+    if (e.target && e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); setRunning(!running); }
+    else if (e.code === "ArrowRight") step();
+    else if (e.key === "r" || e.key === "R") resetAll();
+  });
+
+  /* ---------- Diagrama de tiempos ---------- */
+  var cv = $("tim"), ctx = cv.getContext("2d");
+  var ROWS = [{ l: "Cuenta", t: "n" }, { l: "CLK", t: "clk" }];
+  [["U", "Uni", 4], ["D", "Dec", 4], ["H", "Cen", 2]].forEach(function (g) {
+    for (var i = 0; i < g[2]; i++) ROWS.push({ l: g[1] + " " + QL[i], g: g[0], i: i });
+  });
+  var OFF = { U: 0, D: 4, H: 8 };
+  var ROW_H = 26, LEFT = 84, CELL = 30, PAD_T = 6;
+  var cssH = ROWS.length * ROW_H + PAD_T * 2, dpr = 1, cssW = 0;
+  function sizeCanvas() {
+    dpr = window.devicePixelRatio || 1;
+    cssW = cv.parentNode.clientWidth;
+    cv.style.height = cssH + "px";
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+  }
+  if (window.ResizeObserver) new ResizeObserver(sizeCanvas).observe(cv.parentNode);
+  window.addEventListener("resize", sizeCanvas);
+  sizeCanvas();
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  function draw() {
+    var col = { ink: cssVar("--ink"), line: cssVar("--line"), accent: cssVar("--accent"), U: cssVar("--cu"), D: cssVar("--cd"), H: cssVar("--cc") };
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    var right = cssW - 12, amp = 14, mono = "12px IBM Plex Mono, ui-monospace, monospace";
+    ctx.font = mono; ctx.textBaseline = "middle";
+    ROWS.forEach(function (r, ri) {
+      ctx.fillStyle = r.g ? col[r.g] : col.ink;
+      ctx.fillText(r.l, 10, PAD_T + ri * ROW_H + ROW_H / 2);
+    });
+    ctx.save();
+    ctx.beginPath(); ctx.rect(LEFT, 0, right - LEFT, cssH); ctx.clip();
+    var n = hist.length;
+    function startOf(idx) { return right - (phase + (n - 1 - idx)) * CELL; }
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.beginPath();
+    for (var a = 0; a < n; a++) { var gx = Math.round(startOf(a)) + 0.5; ctx.moveTo(gx, 0); ctx.lineTo(gx, cssH); }
+    ctx.stroke();
+    ROWS.forEach(function (r, ri) {
+      var top = PAD_T + ri * ROW_H + (ROW_H - amp) / 2, bot = top + amp, i;
+      if (r.t === "n") {
+        ctx.fillStyle = col.ink; ctx.font = mono;
+        for (i = 0; i < n; i++) {
+          var sx = startOf(i);
+          if (sx + CELL < LEFT || sx > right) continue;
+          ctx.fillText(("00" + hist[i].n).slice(-3), sx + 4, PAD_T + ri * ROW_H + ROW_H / 2);
+        }
+        return;
+      }
+      var color = r.t === "clk" ? col.accent : col[r.g];
+      ctx.fillStyle = color; ctx.globalAlpha = 0.14;
+      for (i = 0; i < n; i++) {
+        var fx = startOf(i);
+        if (fx + CELL < LEFT || fx > right) continue;
+        if (r.t === "clk") ctx.fillRect(fx + CELL / 2, top, CELL / 2, amp);
+        else if (hist[i].b[OFF[r.g] + r.i]) ctx.fillRect(fx, top, CELL, amp);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "miter"; ctx.beginPath();
+      var prevY = null;
+      for (var k = 0; k < n; k++) {
+        var x0 = startOf(k), x1 = x0 + CELL;
+        if (x1 < LEFT - CELL) { prevY = null; continue; }
+        if (r.t === "clk") {
+          // El flanco activo es el de bajada, al inicio de cada pulso
+          if (prevY === null) ctx.moveTo(x0, top); else ctx.lineTo(x0, top);
+          ctx.lineTo(x0, bot); ctx.lineTo(x0 + CELL / 2, bot); ctx.lineTo(x0 + CELL / 2, top); ctx.lineTo(x1, top);
+          prevY = top;
+        } else {
+          var yy = hist[k].b[OFF[r.g] + r.i] ? top : bot;
+          if (prevY === null) ctx.moveTo(x0, yy); else { ctx.lineTo(x0, prevY); ctx.lineTo(x0, yy); }
+          ctx.lineTo(x1, yy); prevY = yy;
+        }
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+    ctx.strokeStyle = col.accent; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(right, 2); ctx.lineTo(right, cssH - 2); ctx.stroke();
+  }
+
+  /* ---------- Bucle ---------- */
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.25, (now - last) / 1000); last = now;
+    if (running) {
+      acc += dt;
+      var p = 1 / hz, guard = 0;
+      while (acc >= p && guard < 8) { acc -= p; tick(); guard++; }
+      if (guard === 8) acc = 0;
+    }
+    phase = Math.min(1, acc * hz);
+    if (pressed) clearStates(true);
+    else if (clearAt && now >= clearAt) { clearStates(true); clearAt = 0; }
+    var clk = running ? (phase < 0.5 ? 0 : 1) : (now < flashUntil ? 0 : 1);
+    var n = nets(clk);
+    paint(n);
+    var c = $("clkled"); if (c) { c.classList.toggle("hi", !clk); c.classList.toggle("lo", !!clk); }
+    var t = total();
+    $("count").textContent = ("00" + t).slice(-3);
+    $("pulses").textContent = pulses;
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- Inicio ---------- */
+  build();
+  cacheEls();
+  var hit = $("btn-hit");
+  hit.addEventListener("pointerdown", function (e) { pressed = true; try { hit.setPointerCapture(e.pointerId); } catch (x) {} });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) { hit.addEventListener(ev, function () { pressed = false; }); });
+  $("speed").value = hzToSlider(hz);
+  setLimit(0);
+  pushHistory();
+  renderStatus();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
